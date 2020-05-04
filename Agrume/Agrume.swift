@@ -186,11 +186,10 @@ public final class Agrume: UIViewController {
       layout.minimumInteritemSpacing = 0
       layout.minimumLineSpacing = 0
       layout.scrollDirection = .horizontal
-      layout.itemSize = view.frame.size
 
       let collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: layout)
       collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-      collectionView.register(AgrumeCell.self, forCellWithReuseIdentifier: String(describing: AgrumeCell.self))
+      collectionView.register(AgrumeCell.self)
       collectionView.dataSource = self
       collectionView.delegate = self
       collectionView.isPagingEnabled = true
@@ -221,6 +220,10 @@ public final class Agrume: UIViewController {
       _spinner = spinner
     }
     return _spinner!
+  }
+  // Container for the collection view. Fixes an RTL display bug
+  private lazy var containerView = with(UIView(frame: view.bounds)) { containerView in
+    containerView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
   }
 
   private var downloadTask: URLSessionDataTask?
@@ -287,24 +290,26 @@ public final class Agrume: UIViewController {
       blurContainerView.addSubview(blurView)
     }
     view.addSubview(blurContainerView)
-    view.addSubview(collectionView)
+    view.addSubview(containerView)
+    containerView.addSubview(collectionView)
     view.addSubview(spinner)
   }
   
   private func present(from viewController: UIViewController) {
     DispatchQueue.main.async {
       self.blurContainerView.alpha = 1
-      self.collectionView.alpha = 0
+      self.containerView.alpha = 0
       let scale: CGFloat = .initialScaleToExpandFrom
-      self.collectionView.transform = CGAffineTransform(scaleX: scale, y: scale)
+      // Transform the container view, not the collection view to prevent an RTL display bug
+      self.containerView.transform = CGAffineTransform(scaleX: scale, y: scale)
 
       viewController.present(self, animated: false) {
         UIView.animate(withDuration: .transitionAnimationDuration,
                        delay: 0,
                        options: .beginFromCurrentState,
                        animations: {
-                        self.collectionView.alpha = 1
-                        self.collectionView.transform = .identity
+                        self.containerView.alpha = 1
+                        self.containerView.transform = .identity
                         self.addOverlayView()
         }, completion: { _ in
           self.view.isUserInteractionEnabled = true
@@ -345,7 +350,7 @@ public final class Agrume: UIViewController {
   }
 
   public func showImage(atIndex index: Int, animated: Bool = true) {
-    scrollToImage(withIndex: index, animated: animated)
+    scrollToImage(atIndex: index, animated: animated)
   }
 
   public func reload() {
@@ -358,8 +363,8 @@ public final class Agrume: UIViewController {
     hideStatusBar
   }
   
-  private func scrollToImage(withIndex: Int, animated: Bool = false) {
-    collectionView.scrollToItem(at: IndexPath(item: withIndex, section: 0), at: .centeredHorizontally, animated: animated)
+  private func scrollToImage(atIndex index: Int, animated: Bool = false) {
+    collectionView.scrollToItem(at: IndexPath(item: index, section: 0), at: .centeredHorizontally, animated: animated)
   }
   
   private func currentlyVisibleCellIndex() -> Int {
@@ -377,14 +382,14 @@ public final class Agrume: UIViewController {
     spinner.center = view.center
     
     if currentIndex != currentlyVisibleCellIndex() {
-      scrollToImage(withIndex: currentIndex)
+      scrollToImage(atIndex: currentIndex)
     }
   }
   
   override public func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
     let indexToRotate = currentIndex
     let rotationHandler: ((UIViewControllerTransitionCoordinatorContext) -> Void) = { _ in
-      self.scrollToImage(withIndex: indexToRotate)
+      self.scrollToImage(atIndex: indexToRotate)
       self.collectionView.visibleCells.forEach { cell in
         (cell as! AgrumeCell).recenterDuringRotation(size: size)
       }
@@ -401,7 +406,8 @@ extension Agrume: AgrumeDataSource {
   }
   
   public func image(forIndex index: Int, completion: @escaping (UIImage?) -> Void) {
-    if let handler = AgrumeServiceLocator.shared.downloadHandler, let url = images[index].url {
+    let downloadHandler = download ?? AgrumeServiceLocator.shared.downloadHandler
+    if let handler = downloadHandler, let url = images[index].url {
       handler(url, completion)
     } else if let url = images[index].url {
       downloadTask = ImageDownloader.downloadImage(url, completion: completion)
